@@ -3,50 +3,65 @@ workflows:
     name: MaceyRunners Android Build
     max_build_duration: 60
     instance_type: mac_mini_m2
+
     environment:
+      node: 20
+      java: 17
       vars:
-        PACKAGE_NAME: "com.maceyrunners.app"
-        JAVA_VERSION: "17"
-        NODE_VERSION: "20.x"
+        PACKAGE_NAME: com.maceyrunners.app
+
     scripts:
       - name: Install npm dependencies
         script: npm install
+
       - name: Expo Prebuild
         script: npx expo prebuild --platform android
+
       - name: Set up local.properties
         script: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+
       - name: Build Android APK
         script: |
           cd android
           ./gradlew assembleRelease
+
     artifacts:
       - android/app/build/outputs/apk/**/*.apk
+
 
   ios-build:
     name: MaceyRunners iOS Build
     max_build_duration: 60
     instance_type: mac_mini_m2
+
     integrations:
-      app_store_connect: "MaceyRunnersKey" 
+      app_store_connect: MaceyRunnersKey
+
     environment:
+      node: 20
+      cocoapods: default
       ios_signing:
-        distribution_type: app_store 
+        distribution_type: app_store
         bundle_identifier: com.maceyrunners.app
       vars:
-        BUNDLE_ID: "com.maceyrunners.app"
-        XCODE_SCHEME: "MaceyRunners"
+        XCODE_SCHEME: MaceyRunners
+
     scripts:
       - name: Install dependencies and Prebuild
         script: |
           npm install
           npx expo prebuild --platform ios
           cd ios && pod install
+
       - name: Set up code signing
         script: xcode-project use-profiles
+
       - name: Build iOS IPA
         script: |
           xcode-project build-ipa \
             --workspace "ios/$XCODE_SCHEME.xcworkspace" \
             --scheme "$XCODE_SCHEME"
+
     artifacts:
       - build/ios/ipa/*.ipa
+
