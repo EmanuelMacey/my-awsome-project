@@ -73,7 +73,10 @@
     "extra": {
       "router": {},
       "supabaseUrl": "https://sytixskkgfvjjjemmoav.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5dGl4c2trZ2Z2ampqZW1tb2F2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MjM5ODcsImV4cCI6MjA3OTA5OTk4N30.iKrDcIPF3oJUdmc_ZdInjxynYYxxRNbr96xdVgbhbQ4"
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5dGl4c2trZ2Z2ampqZW1tb2F2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MjM5ODcsImV4cCI6MjA3OTA5OTk4N30.iKrDcIPF3oJUdmc_ZdInjxynYYxxRNbr96xdVgbhbQ4",
+      "eas": {
+        "projectId": "03d06d8d-6767-41b6-b639-c889aa64ecda"
+      }
     },
     "owner": "emanuelmacey"
   }
