@@ -36,7 +36,7 @@ workflows:
         BUNDLE_ID: "com.maceyrunners.app"
         XCODE_SCHEME: "MaceyRunners"
     scripts:
-      - name: Install dependencies
+      - name: Install dependencies and Prebuild
         script: |
           npm install
           npx expo prebuild --platform ios
