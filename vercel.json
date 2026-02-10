@@ -28,9 +28,5 @@
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
     }
-  ],
-  "env": {
-    "EXPO_PUBLIC_SUPABASE_URL": "@supabase_url",
-    "EXPO_PUBLIC_SUPABASE_ANON_KEY": "@supabase_anon_key"
-  }
+  ]
 }
