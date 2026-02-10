@@ -1,17 +1,5 @@
 
-import { router } from 'expo-router';
-import { RealtimeChannel } from '@supabase/supabase-js';
-import { supabase } from '../../config/supabase';
-import { searchOrders, filterOrdersByStatus } from '../../api/orders';
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ErrandCategory, ErrandSubcategory } from '../../types/errand.types';
-import { getErrandCategories, getErrandSubcategories, createErrand } from '../../api/errands';
-import { createInvoiceFromErrand, sendInvoiceEmail, markInvoiceAsPaid } from '../../api/invoices';
-import { formatCurrency } from '../../utils/currency';
-import { LoadingSpinner } from '../../components/LoadingSpinner';
-import { useAuth } from '../../contexts/AuthContext';
-import { sendLocalNotification } from '../../utils/notifications';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -25,7 +13,16 @@ import {
   Modal,
   Platform,
 } from 'react-native';
+import { router } from 'expo-router';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../config/supabase';
 import { theme } from '../../styles/theme';
+import { LoadingSpinner } from '../../components/LoadingSpinner';
+import { searchOrders, filterOrdersByStatus } from '../../api/orders';
+import { formatCurrency } from '../../utils/currency';
+import { createInvoiceFromErrand, sendInvoiceEmail, markInvoiceAsPaid } from '../../api/invoices';
+import { getErrandCategories, getErrandSubcategories, createErrand } from '../../api/errands';
+import { ErrandCategory, ErrandSubcategory } from '../../types/errand.types';
 
 interface OrderWithDetails {
   id: string;
@@ -68,254 +65,40 @@ interface ErrandWithDetails {
   } | null;
 }
 
-type OrderFilter = 'all' | 'pending' | 'accepted' | 'in_transit' | 'delivered' | 'cancelled';
+type OrderFilter = 'all' | 'pending' | 'accepted' | 'in_transit' | 'delivered';
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  header: {
-    paddingTop: Platform.OS === 'android' ? 48 : 60,
-    paddingHorizontal: theme.spacing.md,
-    paddingBottom: theme.spacing.md,
-    backgroundColor: theme.colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-    ...theme.shadows.sm,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing.md,
-  },
-  greeting: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.semibold,
-    color: theme.colors.text,
-  },
-  logoutButton: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    backgroundColor: theme.colors.error,
-    borderRadius: theme.borderRadius.md,
-  },
-  logoutButtonText: {
-    color: '#FFFFFF',
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.semibold,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.background,
-    borderRadius: theme.borderRadius.full,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
-    ...theme.shadows.sm,
-  },
-  searchIcon: {
-    fontSize: 20,
-    marginRight: theme.spacing.sm,
-    color: theme.colors.textSecondary,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: theme.fontSize.md,
-    color: theme.colors.text,
-  },
-  quickActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
-  },
-  quickActionButton: {
-    flex: 1,
-    minWidth: '48%',
-    backgroundColor: theme.colors.primary,
-    paddingVertical: theme.spacing.md,
-    paddingHorizontal: theme.spacing.sm,
-    borderRadius: theme.borderRadius.md,
-    alignItems: 'center',
-    ...theme.shadows.sm,
-  },
-  quickActionText: {
-    color: '#FFFFFF',
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.semibold,
-    textAlign: 'center',
-  },
-  filterContainer: {
-    flexDirection: 'row',
-    gap: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    backgroundColor: theme.colors.surface,
-  },
-  filterButton: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.background,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  filterButtonActive: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  filterButtonText: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.text,
-  },
-  filterButtonTextActive: {
-    color: '#FFFFFF',
-    fontWeight: theme.fontWeight.semibold,
-  },
-  content: {
-    flex: 1,
-  },
-  section: {
-    padding: theme.spacing.md,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing.md,
-  },
-  sectionTitle: {
-    fontSize: theme.fontSize.xl,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-  },
-  viewAllButton: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-  },
-  viewAllText: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.primary,
-    fontWeight: theme.fontWeight.semibold,
-  },
-  card: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.md,
-    ...theme.shadows.md,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: theme.spacing.sm,
-  },
-  cardTitle: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-    flex: 1,
-  },
-  statusBadge: {
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 4,
-    borderRadius: theme.borderRadius.sm,
-    marginLeft: theme.spacing.sm,
-  },
-  statusText: {
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.semibold,
-    color: '#FFFFFF',
-  },
-  cardDetail: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
-    marginBottom: 4,
-  },
-  cardActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: theme.spacing.sm,
-    paddingTop: theme.spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-    gap: theme.spacing.sm,
-  },
-  actionButton: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.primary,
-  },
-  actionButtonText: {
-    color: '#FFFFFF',
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.semibold,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: theme.spacing.xxl,
-  },
-  emptyStateIcon: {
-    fontSize: 64,
-    marginBottom: theme.spacing.md,
-  },
-  emptyStateTitle: {
-    fontSize: theme.fontSize.xl,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-    marginBottom: theme.spacing.sm,
-  },
-  emptyStateText: {
-    fontSize: theme.fontSize.md,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-  },
-});
-
-function getStatusColor(status: string): string {
-  const colors: Record<string, string> = {
-    pending: '#F59E0B',
-    confirmed: '#3B82F6',
-    accepted: '#10B981',
-    purchasing: '#8B5CF6',
-    preparing: '#EC4899',
-    ready_for_pickup: '#06B6D4',
-    picked_up: '#14B8A6',
-    in_transit: '#6366F1',
-    delivered: '#10B981',
-    completed: '#10B981',
-    cancelled: '#EF4444',
-  };
-  return colors[status] || '#6B7280';
-}
-
-function getFirstName(fullName: string): string {
-  return fullName.split(' ')[0];
-}
-
-function openInGoogleMaps(latitude: number, longitude: number, label: string = 'Location') {
-  const scheme = Platform.select({
-    ios: 'maps:0,0?q=',
-    android: 'geo:0,0?q=',
-    web: 'https://www.google.com/maps/search/?api=1&query=',
-  });
-  const latLng = `${latitude},${longitude}`;
-  const url = Platform.select({
-    ios: `${scheme}${label}@${latLng}`,
-    android: `${scheme}${latLng}(${label})`,
-    web: `${scheme}${latLng}`,
-  });
-
-  if (url) {
-    Linking.openURL(url).catch(err => console.error('Failed to open Google Maps', err));
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'pending':
+      return '#FF9800';
+    case 'accepted':
+    case 'purchasing':
+    case 'preparing':
+      return '#2196F3';
+    case 'ready_for_pickup':
+    case 'picked_up':
+    case 'in_transit':
+    case 'at_pickup':
+    case 'pickup_complete':
+    case 'en_route':
+      return '#9C27B0';
+    case 'delivered':
+    case 'completed':
+      return '#4CAF50';
+    case 'cancelled':
+      return '#F44336';
+    default:
+      return theme.colors.textSecondary;
   }
-}
+};
+
+const getFirstName = (fullName: string) => {
+  if (!fullName) return 'Unknown';
+  return fullName.split(' ')[0];
+};
+
+// Evaluate Platform.OS outside of component to avoid issues
+const isWeb = Platform.OS === 'web';
 
 export default function AdminDashboardScreen() {
   const { user } = useAuth();
@@ -323,258 +106,298 @@ export default function AdminDashboardScreen() {
   const [errands, setErrands] = useState<ErrandWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<OrderFilter>('all');
+  const [activeTab, setActiveTab] = useState<'orders' | 'errands'>('orders');
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const channelRef = useRef<RealtimeChannel | null>(null);
+  const [generatingInvoice, setGeneratingInvoice] = useState<string | null>(null);
+  const [sendingEmail, setSendingEmail] = useState<string | null>(null);
+  const [markingPaid, setMarkingPaid] = useState<string | null>(null);
+  
+  const [showCreateOrderModal, setShowCreateOrderModal] = useState(false);
+  const [stores, setStores] = useState<any[]>([]);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [selectedStore, setSelectedStore] = useState<string>('');
+  const [selectedStoreDetails, setSelectedStoreDetails] = useState<any>(null);
+  const [orderNotes, setOrderNotes] = useState('');
+  const [orderPrice, setOrderPrice] = useState('');
+  const [creatingOrder, setCreatingOrder] = useState(false);
 
-  const filteredOrders = useMemo(() => {
-    let filtered = orders;
-
-    if (filter !== 'all') {
-      filtered = filtered.filter(order => order.status === filter);
-    }
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(order =>
-        order.order_number.toLowerCase().includes(query) ||
-        order.customer?.name.toLowerCase().includes(query) ||
-        order.delivery_address.toLowerCase().includes(query)
-      );
-    }
-
-    return filtered;
-  }, [orders, filter, searchQuery]);
+  const [showCreateErrandModal, setShowCreateErrandModal] = useState(false);
+  const [errandCategories, setErrandCategories] = useState<ErrandCategory[]>([]);
+  const [errandSubcategories, setErrandSubcategories] = useState<ErrandSubcategory[]>([]);
+  const [errandCustomerName, setErrandCustomerName] = useState('');
+  const [errandCustomerPhone, setErrandCustomerPhone] = useState('');
+  const [errandCustomerAddress, setErrandCustomerAddress] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('');
+  const [pickupAddress, setPickupAddress] = useState('');
+  const [dropoffAddress, setDropoffAddress] = useState('');
+  const [errandInstructions, setErrandInstructions] = useState('');
+  const [errandNotes, setErrandNotes] = useState('');
+  const [creatingErrand, setCreatingErrand] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      console.log('📊 Admin: Fetching dashboard data...');
-
-      // Show cached data immediately for faster perceived loading
-      const cachedOrders = await AsyncStorage.getItem('admin_orders_cache');
-      const cachedErrands = await AsyncStorage.getItem('admin_errands_cache');
+      console.log('Fetching orders and errands for admin dashboard...');
       
-      if (cachedOrders && cachedErrands && !refreshing) {
-        try {
-          const parsedOrders = JSON.parse(cachedOrders);
-          const parsedErrands = JSON.parse(cachedErrands);
-          console.log('⚡ Admin: Using cached data');
-          setOrders(parsedOrders);
-          setErrands(parsedErrands);
-          setLoading(false);
-        } catch (e) {
-          console.log('⚠️ Failed to parse cached data');
-        }
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          customer:users!orders_customer_id_fkey(name, email, phone)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (ordersError) {
+        console.error('Error fetching orders:', ordersError);
+        throw ordersError;
       }
 
-      const [ordersResponse, errandsResponse] = await Promise.all([
-        supabase
-          .from('orders')
-          .select(`
-            *,
-            customer:users!orders_customer_id_fkey(name, phone)
-          `)
-          .order('created_at', { ascending: false })
-          .limit(50),
-        supabase
-          .from('errands')
-          .select(`
-            *,
-            customer:users!errands_customer_id_fkey(name, phone),
-            category:errand_categories(name)
-          `)
-          .order('created_at', { ascending: false})
-          .limit(50),
-      ]);
+      console.log('Orders fetched:', ordersData?.length || 0);
+      setOrders(ordersData || []);
 
-      if (ordersResponse.error) throw ordersResponse.error;
-      if (errandsResponse.error) throw errandsResponse.error;
+      const { data: errandsData, error: errandsError } = await supabase
+        .from('errands')
+        .select(`
+          *,
+          customer:users!errands_customer_id_fkey(name, email, phone),
+          category:errand_categories(name)
+        `)
+        .order('created_at', { ascending: false });
 
-      console.log('✅ Admin: Orders fetched:', ordersResponse.data?.length || 0);
-      console.log('✅ Admin: Errands fetched:', errandsResponse.data?.length || 0);
+      if (errandsError) {
+        console.error('Error fetching errands:', errandsError);
+        throw errandsError;
+      }
 
-      setOrders(ordersResponse.data || []);
-      setErrands(errandsResponse.data || []);
-      
-      // Cache the fresh data
-      await AsyncStorage.setItem('admin_orders_cache', JSON.stringify(ordersResponse.data || []));
-      await AsyncStorage.setItem('admin_errands_cache', JSON.stringify(errandsResponse.data || []));
+      console.log('Errands fetched:', errandsData?.length || 0);
+      setErrands(errandsData || []);
     } catch (error: any) {
-      console.error('❌ Admin: Error fetching dashboard data:', error);
-      Alert.alert('Error', 'Failed to load dashboard data');
+      console.error('Error fetching data:', error);
+      Alert.alert('Error', 'Failed to load data');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [refreshing]);
+  }, []);
+
+  const fetchStores = useCallback(async () => {
+    try {
+      const { data: storesData, error: storesError } = await supabase
+        .from('stores')
+        .select('id, name, address')
+        .order('name');
+
+      if (storesError) {
+        console.error('Error fetching stores:', storesError);
+      } else {
+        setStores(storesData || []);
+      }
+    } catch (error: any) {
+      console.error('Error fetching stores:', error);
+    }
+  }, []);
+
+  const fetchErrandCategories = useCallback(async () => {
+    try {
+      const categories = await getErrandCategories();
+      setErrandCategories(categories);
+    } catch (error: any) {
+      console.error('Error fetching errand categories:', error);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!user) return;
-
     fetchData();
+    fetchStores();
+    fetchErrandCategories();
+  }, [fetchData, fetchStores, fetchErrandCategories]);
 
-    const setupRealtimeSubscription = async () => {
-      try {
-        if (channelRef.current) {
-          await supabase.removeChannel(channelRef.current);
-          channelRef.current = null;
-        }
+  useEffect(() => {
+    if (selectedCategory) {
+      getErrandSubcategories(selectedCategory).then(setErrandSubcategories);
+    } else {
+      setErrandSubcategories([]);
+    }
+  }, [selectedCategory]);
 
-        console.log('🔔 Admin: Setting up realtime subscriptions');
-        const channel = supabase.channel('admin_dashboard', {
-          config: {
-            broadcast: { self: false },
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchData();
+  }, [fetchData]);
+
+  const handleCreateOrder = async () => {
+    if (!customerName.trim() || !customerPhone.trim() || !customerAddress.trim() || !selectedStore) {
+      Alert.alert('Error', 'Please fill in all customer details and select a store');
+      return;
+    }
+
+    if (!orderPrice.trim() || isNaN(parseFloat(orderPrice))) {
+      Alert.alert('Error', 'Please enter a valid price for the order');
+      return;
+    }
+
+    setCreatingOrder(true);
+    try {
+      const orderNumber = `ORD-${Date.now()}`;
+      const totalPrice = parseFloat(orderPrice);
+
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          order_number: orderNumber,
+          customer_id: user?.id,
+          store_id: selectedStore,
+          status: 'pending',
+          total: totalPrice,
+          subtotal: totalPrice,
+          delivery_fee: 0,
+          tax: 0,
+          payment_method: 'cash',
+          delivery_address: customerAddress,
+          customer_phone: customerPhone,
+          delivery_notes: `Customer: ${customerName}\nPhone: ${customerPhone}\n${orderNotes}`,
+        })
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error('Order creation error:', orderError);
+        throw orderError;
+      }
+
+      Alert.alert(
+        'Success',
+        `Order ${orderNumber} created successfully for ${customerName}!\n\nTotal: GYD $${totalPrice.toFixed(2)}`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setShowCreateOrderModal(false);
+              setCustomerName('');
+              setCustomerPhone('');
+              setCustomerAddress('');
+              setSelectedStore('');
+              setSelectedStoreDetails(null);
+              setOrderNotes('');
+              setOrderPrice('');
+              fetchData();
+            },
           },
-        });
-
-        channelRef.current = channel;
-
-        channel
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'orders',
-            },
-            async (payload) => {
-              console.log('🆕 Admin: New order created:', payload);
-              
-              const newOrder = payload.new as OrderWithDetails;
-              
-              // Send local notification to admin about new order
-              console.log('📬 Admin: Sending new order notification');
-              await sendLocalNotification(
-                '🆕 New Order Placed',
-                `Order #${newOrder.order_number} - GYD $${newOrder.total.toFixed(2)}`,
-                {
-                  type: 'new_order',
-                  orderId: newOrder.id,
-                  orderNumber: newOrder.order_number,
-                }
-              );
-              
-              fetchData();
-            }
-          )
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'orders',
-            },
-            async (payload) => {
-              console.log('📦 Admin: Order updated:', payload);
-              
-              const updatedOrder = payload.new as OrderWithDetails;
-              const oldOrder = payload.old as OrderWithDetails;
-              
-              // Notify admin if order was cancelled
-              if (updatedOrder.status === 'cancelled' && oldOrder.status !== 'cancelled') {
-                console.log('📬 Admin: Sending cancellation notification');
-                await sendLocalNotification(
-                  '❌ Order Cancelled',
-                  `Order #${updatedOrder.order_number} was cancelled.`,
-                  {
-                    type: 'order_cancelled',
-                    orderId: updatedOrder.id,
-                    orderNumber: updatedOrder.order_number,
-                  }
-                );
-              }
-              
-              fetchData();
-            }
-          )
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'errands',
-            },
-            async (payload) => {
-              console.log('🆕 Admin: New errand created:', payload);
-              
-              const newErrand = payload.new as ErrandWithDetails;
-              
-              // Send local notification to admin about new errand
-              console.log('📬 Admin: Sending new errand notification');
-              await sendLocalNotification(
-                '🆕 New Errand Requested',
-                `Errand #${newErrand.errand_number} - GYD $${newErrand.total_price.toFixed(2)}`,
-                {
-                  type: 'new_errand',
-                  errandId: newErrand.id,
-                  errandNumber: newErrand.errand_number,
-                }
-              );
-              
-              fetchData();
-            }
-          )
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'errands',
-            },
-            async (payload) => {
-              console.log('📦 Admin: Errand updated:', payload);
-              
-              const updatedErrand = payload.new as ErrandWithDetails;
-              const oldErrand = payload.old as ErrandWithDetails;
-              
-              // Notify admin if errand was cancelled
-              if (updatedErrand.status === 'cancelled' && oldErrand.status !== 'cancelled') {
-                console.log('📬 Admin: Sending cancellation notification');
-                await sendLocalNotification(
-                  '❌ Errand Cancelled',
-                  `Errand #${updatedErrand.errand_number} was cancelled.`,
-                  {
-                    type: 'errand_cancelled',
-                    errandId: updatedErrand.id,
-                    errandNumber: updatedErrand.errand_number,
-                  }
-                );
-              }
-              
-              fetchData();
-            }
-          )
-          .subscribe();
-      } catch (error) {
-        console.error('❌ Admin: Error setting up realtime subscription:', error);
-      }
-    };
-
-    setupRealtimeSubscription();
-
-    return () => {
-      if (channelRef.current) {
-        console.log('🔕 Admin: Cleaning up realtime subscription');
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-    };
-  }, [user, fetchData]);
-
-  const handleCreateOrder = () => {
-    Alert.alert('Coming Soon', 'Manual order creation will be available soon');
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error creating order:', error);
+      Alert.alert('Error', error.message || 'Failed to create order. Please check payment method constraints.');
+    } finally {
+      setCreatingOrder(false);
+    }
   };
 
-  const handleCreateErrand = () => {
-    router.push('/errands/create');
+  const handleCreateErrand = async () => {
+    if (!errandCustomerName.trim() || !errandCustomerPhone.trim()) {
+      Alert.alert('Error', 'Please fill in customer name and phone');
+      return;
+    }
+
+    if (!pickupAddress.trim() || !dropoffAddress.trim()) {
+      Alert.alert('Error', 'Please provide pickup and dropoff addresses');
+      return;
+    }
+
+    if (!errandInstructions.trim()) {
+      Alert.alert('Error', 'Please provide instructions for the errand');
+      return;
+    }
+
+    setCreatingErrand(true);
+    try {
+      const errandNumber = `ERR-${Date.now()}`;
+      const fixedPrice = 2000;
+      
+      let defaultCategoryId = null;
+      if (errandCategories.length > 0) {
+        defaultCategoryId = errandCategories[0].id;
+      }
+
+      const { data: errandData, error: errandError } = await supabase
+        .from('errands')
+        .insert({
+          errand_number: errandNumber,
+          customer_id: user?.id,
+          category_id: defaultCategoryId,
+          subcategory_id: null,
+          pickup_address: pickupAddress,
+          dropoff_address: dropoffAddress,
+          instructions: errandInstructions,
+          notes: `Customer: ${errandCustomerName}\nPhone: ${errandCustomerPhone}\nAddress: ${errandCustomerAddress}\n${errandNotes}`,
+          status: 'pending',
+          is_asap: true,
+          base_price: fixedPrice,
+          distance_fee: 0,
+          complexity_fee: 0,
+          total_price: fixedPrice,
+          payment_method: 'cash',
+        })
+        .select()
+        .single();
+
+      if (errandError) {
+        console.error('Errand creation error:', errandError);
+        throw errandError;
+      }
+
+      Alert.alert(
+        'Success',
+        `Errand ${errandNumber} created successfully for ${errandCustomerName}!\n\nFixed Price: GYD $${fixedPrice.toFixed(2)}\n\nDrivers can now see and accept this errand.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setShowCreateErrandModal(false);
+              setErrandCustomerName('');
+              setErrandCustomerPhone('');
+              setErrandCustomerAddress('');
+              setSelectedCategory('');
+              setSelectedSubcategory('');
+              setPickupAddress('');
+              setDropoffAddress('');
+              setErrandInstructions('');
+              setErrandNotes('');
+              fetchData();
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error creating errand:', error);
+      Alert.alert('Error', error.message || 'Failed to create errand. Please check payment method constraints.');
+    } finally {
+      setCreatingErrand(false);
+    }
   };
 
   const handleOrderAction = async (orderId: string, action: 'accept' | 'reject' | 'complete') => {
     try {
       let newStatus = '';
-      if (action === 'accept') newStatus = 'accepted';
-      else if (action === 'reject') newStatus = 'cancelled';
-      else if (action === 'complete') newStatus = 'delivered';
+      let message = '';
+
+      switch (action) {
+        case 'accept':
+          newStatus = 'accepted';
+          message = 'Order accepted successfully';
+          break;
+        case 'reject':
+          newStatus = 'cancelled';
+          message = 'Order cancelled';
+          break;
+        case 'complete':
+          newStatus = 'delivered';
+          message = 'Order marked as delivered';
+          break;
+      }
 
       const { error } = await supabase
         .from('orders')
@@ -583,21 +406,33 @@ export default function AdminDashboardScreen() {
 
       if (error) throw error;
 
-      console.log(`Order ${orderId} ${action}ed`);
+      Alert.alert('Success', message);
       fetchData();
-      Alert.alert('Success', `Order ${action}ed successfully`);
     } catch (error: any) {
-      console.error(`Error ${action}ing order:`, error);
-      Alert.alert('Error', `Failed to ${action} order`);
+      console.error('Error updating order:', error);
+      Alert.alert('Error', 'Failed to update order');
     }
   };
 
   const handleErrandAction = async (errandId: string, action: 'accept' | 'reject' | 'complete') => {
     try {
       let newStatus = '';
-      if (action === 'accept') newStatus = 'accepted';
-      else if (action === 'reject') newStatus = 'cancelled';
-      else if (action === 'complete') newStatus = 'completed';
+      let message = '';
+
+      switch (action) {
+        case 'accept':
+          newStatus = 'accepted';
+          message = 'Errand accepted successfully';
+          break;
+        case 'reject':
+          newStatus = 'cancelled';
+          message = 'Errand cancelled';
+          break;
+        case 'complete':
+          newStatus = 'completed';
+          message = 'Errand marked as completed';
+          break;
+      }
 
       const { error } = await supabase
         .from('errands')
@@ -606,81 +441,51 @@ export default function AdminDashboardScreen() {
 
       if (error) throw error;
 
-      console.log(`Errand ${errandId} ${action}ed`);
+      Alert.alert('Success', message);
       fetchData();
-      Alert.alert('Success', `Errand ${action}ed successfully`);
     } catch (error: any) {
-      console.error(`Error ${action}ing errand:`, error);
-      Alert.alert('Error', `Failed to ${action} errand`);
+      console.error('Error updating errand:', error);
+      Alert.alert('Error', 'Failed to update errand');
     }
   };
 
   const handleGenerateInvoice = async (errandId: string) => {
-    try {
-      if (!user) return;
-
-      console.log('Generating invoice for errand:', errandId);
-      const invoice = await createInvoiceFromErrand(errandId, user.id);
-      console.log('Invoice generated:', invoice.id);
-
-      Alert.alert(
-        'Invoice Generated',
-        'Would you like to send it to the customer via email?',
-        [
-          { text: 'Not Now', style: 'cancel' },
-          {
-            text: 'Send Email',
-            onPress: () => handleSendInvoiceEmail(invoice.id),
-          },
-        ]
-      );
-    } catch (error: any) {
-      console.error('Error generating invoice:', error);
-      Alert.alert('Error', error.message || 'Failed to generate invoice');
+    if (!user?.id) {
+      Alert.alert('Error', 'User not authenticated');
+      return;
     }
-  };
 
-  const handleSendInvoiceEmail = async (invoiceId: string) => {
-    try {
-      if (!user) return;
-
-      console.log('Sending invoice email:', invoiceId);
-      await sendInvoiceEmail(invoiceId, user.id);
-      Alert.alert('Success', 'Invoice sent via email');
-    } catch (error: any) {
-      console.error('Error sending invoice:', error);
-      Alert.alert('Error', 'Failed to send invoice email');
-    }
-  };
-
-  const handleMarkInvoiceAsPaid = async (invoiceId: string) => {
-    try {
-      if (!user) return;
-
-      console.log('Marking invoice as paid:', invoiceId);
-      await markInvoiceAsPaid(invoiceId, user.id);
-      Alert.alert('Success', 'Invoice marked as paid');
-    } catch (error: any) {
-      console.error('Error marking invoice as paid:', error);
-      Alert.alert('Error', 'Failed to mark invoice as paid');
-    }
-  };
-
-  const handleLogout = () => {
     Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
+      'Generate Invoice',
+      'Generate invoice for this errand?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Logout',
-          style: 'destructive',
+          text: 'Generate',
           onPress: async () => {
             try {
-              await supabase.auth.signOut();
-              router.replace('/auth/landing');
-            } catch (error) {
-              console.error('Error logging out:', error);
+              setGeneratingInvoice(errandId);
+              console.log('Generating invoice for errand:', errandId);
+              const invoice = await createInvoiceFromErrand(errandId, user.id);
+
+              Alert.alert(
+                'Success',
+                'Invoice generated successfully! You can now send it to the customer or mark it as paid.',
+                [
+                  {
+                    text: 'View Invoice',
+                    onPress: () => router.push(`/customer/invoice/${invoice.id}`),
+                  },
+                  { text: 'OK' },
+                ]
+              );
+
+              fetchData();
+            } catch (error: any) {
+              console.error('Error generating invoice:', error);
+              Alert.alert('Error', error.message || 'Failed to generate invoice');
+            } finally {
+              setGeneratingInvoice(null);
             }
           },
         },
@@ -688,252 +493,1213 @@ export default function AdminDashboardScreen() {
     );
   };
 
-  const handleSearch = (text: string) => {
-    setSearchQuery(text);
+  const handleSendInvoiceEmail = async (invoiceId: string) => {
+    if (!user?.id) {
+      Alert.alert('Error', 'User not authenticated');
+      return;
+    }
+
+    Alert.alert(
+      'Send Invoice',
+      'Send this invoice to the customer via email?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send',
+          onPress: async () => {
+            try {
+              setSendingEmail(invoiceId);
+              console.log('Sending invoice email:', invoiceId);
+              await sendInvoiceEmail(invoiceId, user.id);
+
+              Alert.alert('Success', 'Invoice sent to customer email successfully!');
+            } catch (error: any) {
+              console.error('Error sending invoice email:', error);
+              Alert.alert('Error', error.message || 'Failed to send invoice email');
+            } finally {
+              setSendingEmail(null);
+            }
+          },
+        },
+      ]
+    );
   };
+
+  const handleMarkInvoiceAsPaid = async (invoiceId: string) => {
+    if (!user?.id) {
+      Alert.alert('Error', 'User not authenticated');
+      return;
+    }
+
+    Alert.alert(
+      'Mark as Paid',
+      'Mark this invoice as paid? This action will record the payment timestamp.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark as Paid',
+          onPress: async () => {
+            try {
+              setMarkingPaid(invoiceId);
+              console.log('Marking invoice as paid:', invoiceId);
+              await markInvoiceAsPaid(invoiceId, user.id);
+
+              Alert.alert('Success', 'Invoice marked as paid successfully!');
+              fetchData();
+            } catch (error: any) {
+              console.error('Error marking invoice as paid:', error);
+              Alert.alert('Error', error.message || 'Failed to mark invoice as paid');
+            } finally {
+              setMarkingPaid(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.replace('/auth/landing');
+    } catch (error: any) {
+      console.error('Error logging out:', error);
+      Alert.alert('Error', 'Failed to logout');
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      fetchData();
+      return;
+    }
+
+    try {
+      const results = await searchOrders(searchQuery);
+      setOrders(results);
+    } catch (error: any) {
+      console.error('Error searching orders:', error);
+      Alert.alert('Error', 'Failed to search orders');
+    }
+  };
+
+  const filteredOrders = orderFilter === 'all'
+    ? orders
+    : orders.filter(order => order.status === orderFilter);
+
+  const filteredErrands = errands;
 
   if (loading) {
     return <LoadingSpinner message="Loading dashboard..." />;
   }
 
-  const firstName = user?.name ? getFirstName(user.name) : 'Admin';
-
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.greeting}>Hello, {firstName}! 👋</Text>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Text style={styles.logoutButtonText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search orders..."
-            placeholderTextColor={theme.colors.textSecondary}
-            value={searchQuery}
-            onChangeText={handleSearch}
-          />
-        </View>
-
-        <View style={styles.quickActions}>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => router.push('/admin/user-management')}
-          >
-            <Text style={styles.quickActionText}>👥 Users</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => router.push('/admin/store-management')}
-          >
-            <Text style={styles.quickActionText}>🏪 Stores</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => router.push('/admin/invoices')}
-          >
-            <Text style={styles.quickActionText}>📄 Invoices</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => router.push('/admin/promotions')}
-          >
-            <Text style={styles.quickActionText}>🎉 Promotions</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => router.push('/admin/coupons')}
-          >
-            <Text style={styles.quickActionText}>🎫 Coupons</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => {
-              console.log('📢 Opening notification campaigns');
-              router.push('/admin/notification-campaigns');
-            }}
-          >
-            <Text style={styles.quickActionText}>📢 Notifications</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={handleCreateErrand}
-          >
-            <Text style={styles.quickActionText}>➕ New Errand</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterContainer}
-      >
-        {(['all', 'pending', 'accepted', 'in_transit', 'delivered', 'cancelled'] as OrderFilter[]).map((f) => (
-          <TouchableOpacity
-            key={f}
-            style={[styles.filterButton, filter === f && styles.filterButtonActive]}
-            onPress={() => setFilter(f)}
-          >
-            <Text
-              style={[
-                styles.filterButtonText,
-                filter === f && styles.filterButtonTextActive,
-              ]}
-            >
-              {f.charAt(0).toUpperCase() + f.slice(1).replace('_', ' ')}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <ScrollView
-        style={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchData} />}
-      >
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Orders</Text>
+      {/* Sidebar Navigation (Web Only) */}
+      {isWeb && (
+        <View style={styles.sidebar}>
+          <View style={styles.sidebarHeader}>
+            <Text style={styles.sidebarLogo}>🚚</Text>
+            <Text style={styles.sidebarTitle}>ErrandRunners</Text>
+            <Text style={styles.sidebarSubtitle}>Admin Panel</Text>
           </View>
 
-          {filteredOrders.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateIcon}>📦</Text>
-              <Text style={styles.emptyStateTitle}>No Orders Found</Text>
-              <Text style={styles.emptyStateText}>
-                {searchQuery ? 'Try a different search term' : 'Orders will appear here'}
+          <View style={styles.sidebarMenu}>
+            <TouchableOpacity style={styles.sidebarMenuItem} onPress={() => {}}>
+              <Text style={styles.sidebarMenuIcon}>📊</Text>
+              <Text style={styles.sidebarMenuText}>Dashboard</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sidebarMenuItem}
+              onPress={() => router.push('/admin/store-management')}
+            >
+              <Text style={styles.sidebarMenuIcon}>🏪</Text>
+              <Text style={styles.sidebarMenuText}>Stores</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sidebarMenuItem}
+              onPress={() => router.push('/admin/user-management')}
+            >
+              <Text style={styles.sidebarMenuIcon}>👥</Text>
+              <Text style={styles.sidebarMenuText}>Users</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sidebarMenuItem}
+              onPress={() => router.push('/admin/invoices')}
+            >
+              <Text style={styles.sidebarMenuIcon}>📄</Text>
+              <Text style={styles.sidebarMenuText}>Invoices</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.sidebarFooter}>
+            <View style={styles.sidebarUser}>
+              <Text style={styles.sidebarUserIcon}>👤</Text>
+              <View>
+                <Text style={styles.sidebarUserName}>
+                  {user ? getFirstName(user.name) : 'Admin'}
+                </Text>
+                <Text style={styles.sidebarUserRole}>Administrator</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.sidebarLogout} onPress={handleLogout}>
+              <Text style={styles.sidebarLogoutText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Main Content Area */}
+      <View style={[styles.mainContent, isWeb && styles.mainContentWeb]}>
+        {/* Mobile Header (Hidden on Web) */}
+        {!isWeb && (
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.headerTitle}>Admin Dashboard</Text>
+              <Text style={styles.headerSubtitle}>
+                {user ? getFirstName(user.name) : 'Admin'}
               </Text>
             </View>
-          ) : (
-            filteredOrders.map((order) => (
-              <View key={order.id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Text style={styles.cardTitle}>#{order.order_number}</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) }]}>
-                    <Text style={styles.statusText}>{order.status}</Text>
-                  </View>
-                </View>
-
-                <Text style={styles.cardDetail}>
-                  Customer: {order.customer?.name || 'Unknown'}
-                </Text>
-                <Text style={styles.cardDetail}>
-                  Phone: {order.customer_phone || order.customer?.phone || 'N/A'}
-                </Text>
-                <Text style={styles.cardDetail}>
-                  Address: {order.delivery_address}
-                </Text>
-                <Text style={styles.cardDetail}>
-                  Total: {formatCurrency(order.total)}
-                </Text>
-                <Text style={styles.cardDetail}>
-                  Payment: {order.payment_method}
-                </Text>
-
-                <View style={styles.cardActions}>
-                  {order.delivery_latitude && order.delivery_longitude && (
-                    <TouchableOpacity
-                      style={[styles.actionButton, { backgroundColor: '#10B981' }]}
-                      onPress={() => openInGoogleMaps(
-                        order.delivery_latitude!,
-                        order.delivery_longitude!,
-                        'Delivery Location'
-                      )}
-                    >
-                      <Text style={styles.actionButtonText}>📍 View Location</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => router.push(`/customer/order/${order.id}`)}
-                  >
-                    <Text style={styles.actionButtonText}>View Details</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Errands</Text>
-          </View>
-
-          {errands.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateIcon}>📋</Text>
-              <Text style={styles.emptyStateTitle}>No Errands Found</Text>
-              <Text style={styles.emptyStateText}>Errands will appear here</Text>
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={() => router.push('/admin/store-management')}
+              >
+                <Text style={styles.headerButtonText}>🏪 Stores</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={() => router.push('/admin/user-management')}
+              >
+                <Text style={styles.headerButtonText}>👥 Users</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+                <Text style={styles.logoutButtonText}>Logout</Text>
+              </TouchableOpacity>
             </View>
-          ) : (
-            errands.slice(0, 10).map((errand) => (
-              <View key={errand.id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Text style={styles.cardTitle}>#{errand.errand_number}</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(errand.status) }]}>
-                    <Text style={styles.statusText}>{errand.status}</Text>
+          </View>
+        )}
+
+        {/* Web Header */}
+        {isWeb && (
+          <View style={styles.webHeader}>
+            <Text style={styles.webHeaderTitle}>Dashboard</Text>
+            <Text style={styles.webHeaderSubtitle}>
+              Manage orders, errands, and operations
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.createSection}>
+          <TouchableOpacity
+            style={[styles.createButton, styles.createOrderButton]}
+            onPress={() => setShowCreateOrderModal(true)}
+          >
+            <Text style={styles.createButtonText}>➕ Create Order</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.createButton, styles.createErrandButton]}
+            onPress={() => setShowCreateErrandModal(true)}
+          >
+            <Text style={styles.createButtonText}>🏃 Create Errand</Text>
+          </TouchableOpacity>
+        </View>
+
+        {!isWeb && (
+          <View style={styles.invoiceSection}>
+            <TouchableOpacity
+              style={styles.invoiceButton}
+              onPress={() => router.push('/admin/invoices')}
+            >
+              <Text style={styles.invoiceButtonText}>📄 Invoice Management</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'orders' && styles.tabActive]}
+            onPress={() => setActiveTab('orders')}
+          >
+            <Text style={[styles.tabText, activeTab === 'orders' && styles.tabTextActive]}>
+              Orders ({orders.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'errands' && styles.tabActive]}
+            onPress={() => setActiveTab('errands')}
+          >
+            <Text style={[styles.tabText, activeTab === 'errands' && styles.tabTextActive]}>
+              Errands ({errands.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
+        {activeTab === 'orders' ? (
+          <>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.filtersContainer}
+              contentContainerStyle={styles.filtersContent}
+            >
+              {(['all', 'pending', 'accepted', 'in_transit', 'delivered'] as OrderFilter[]).map((filter) => (
+                <TouchableOpacity
+                  key={filter}
+                  style={[
+                    styles.filterChip,
+                    orderFilter === filter && styles.filterChipActive,
+                  ]}
+                  onPress={() => setOrderFilter(filter)}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      orderFilter === filter && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {filter.charAt(0).toUpperCase() + filter.slice(1).replace('_', ' ')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {filteredOrders.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No orders found</Text>
+              </View>
+            ) : (
+              filteredOrders.map((order) => (
+                <View key={order.id} style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <View>
+                      <Text style={styles.cardTitle}>#{order.order_number}</Text>
+                      <Text style={styles.cardSubtitle}>
+                        Customer: {order.customer?.name || 'Unknown Customer'}
+                      </Text>
+                      <Text style={styles.cardSubtitle}>
+                        Phone: {order.customer?.phone || order.customer_phone || 'N/A'}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
+                      <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
+                        {order.status}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.cardBody}>
+                    <Text style={styles.cardText}>📍 {order.delivery_address}</Text>
+                    <Text style={styles.cardText}>💰 {formatCurrency(order.total)}</Text>
+                    <Text style={styles.cardText}>
+                      📅 {new Date(order.created_at).toLocaleDateString()}
+                    </Text>
+                  </View>
+
+                  <View style={styles.cardActions}>
+                    {order.status === 'pending' && (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.actionButton, styles.acceptButton]}
+                          onPress={() => handleOrderAction(order.id, 'accept')}
+                        >
+                          <Text style={styles.actionButtonText}>Accept</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionButton, styles.rejectButton]}
+                          onPress={() => handleOrderAction(order.id, 'reject')}
+                        >
+                          <Text style={styles.actionButtonText}>Reject</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                    {order.status === 'in_transit' && (
+                      <TouchableOpacity
+                        style={[styles.actionButton, styles.completeButton]}
+                        onPress={() => handleOrderAction(order.id, 'complete')}
+                      >
+                        <Text style={styles.actionButtonText}>Mark Delivered</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.viewButton]}
+                      onPress={() => router.push(`/customer/order/${order.id}`)}
+                    >
+                      <Text style={styles.actionButtonText}>View Details</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
-
-                <Text style={styles.cardDetail}>
-                  Customer: {errand.customer?.name || 'Unknown'}
-                </Text>
-                <Text style={styles.cardDetail}>
-                  Category: {errand.category?.name || 'N/A'}
-                </Text>
-                <Text style={styles.cardDetail}>
-                  Pickup: {errand.pickup_address}
-                </Text>
-                <Text style={styles.cardDetail}>
-                  Dropoff: {errand.dropoff_address}
-                </Text>
-                <Text style={styles.cardDetail}>
-                  Total: {formatCurrency(errand.total_price)}
-                </Text>
-
-                <View style={styles.cardActions}>
-                  {errand.pickup_latitude && errand.pickup_longitude && (
-                    <TouchableOpacity
-                      style={[styles.actionButton, { backgroundColor: '#10B981' }]}
-                      onPress={() => openInGoogleMaps(
-                        errand.pickup_latitude!,
-                        errand.pickup_longitude!,
-                        'Pickup Location'
-                      )}
-                    >
-                      <Text style={styles.actionButtonText}>📍 Pickup</Text>
-                    </TouchableOpacity>
-                  )}
-                  {errand.dropoff_latitude && errand.dropoff_longitude && (
-                    <TouchableOpacity
-                      style={[styles.actionButton, { backgroundColor: '#3B82F6' }]}
-                      onPress={() => openInGoogleMaps(
-                        errand.dropoff_latitude!,
-                        errand.dropoff_longitude!,
-                        'Dropoff Location'
-                      )}
-                    >
-                      <Text style={styles.actionButtonText}>📍 Dropoff</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => router.push(`/errands/detail/${errand.id}`)}
-                  >
-                    <Text style={styles.actionButtonText}>View Details</Text>
-                  </TouchableOpacity>
-                </View>
+              ))
+            )}
+          </>
+        ) : (
+          <>
+            {filteredErrands.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No errands found</Text>
               </View>
-            ))
-          )}
+            ) : (
+              filteredErrands.map((errand) => (
+                <View key={errand.id} style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <View>
+                      <Text style={styles.cardTitle}>#{errand.errand_number}</Text>
+                      <Text style={styles.cardSubtitle}>
+                        Customer: {errand.customer?.name || 'Unknown Customer'}
+                      </Text>
+                      <Text style={styles.cardSubtitle}>
+                        Phone: {errand.customer?.phone || 'N/A'}
+                      </Text>
+                      <Text style={styles.cardSubtitle}>
+                        Category: {errand.category?.name || 'N/A'}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(errand.status) + '20' }]}>
+                      <Text style={[styles.statusText, { color: getStatusColor(errand.status) }]}>
+                        {errand.status}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.cardBody}>
+                    <Text style={styles.cardText}>📍 Pickup: {errand.pickup_address}</Text>
+                    <Text style={styles.cardText}>🎯 Dropoff: {errand.dropoff_address}</Text>
+                    <Text style={styles.cardText}>💰 {formatCurrency(errand.total_price)}</Text>
+                    <Text style={styles.cardText}>
+                      📅 {new Date(errand.created_at).toLocaleDateString()}
+                    </Text>
+                  </View>
+
+                  <View style={styles.cardActions}>
+                    {errand.status === 'pending' && (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.actionButton, styles.acceptButton]}
+                          onPress={() => handleErrandAction(errand.id, 'accept')}
+                        >
+                          <Text style={styles.actionButtonText}>Accept</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionButton, styles.rejectButton]}
+                          onPress={() => handleErrandAction(errand.id, 'reject')}
+                        >
+                          <Text style={styles.actionButtonText}>Reject</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                    {errand.status === 'en_route' && (
+                      <TouchableOpacity
+                        style={[styles.actionButton, styles.completeButton]}
+                        onPress={() => handleErrandAction(errand.id, 'complete')}
+                      >
+                        <Text style={styles.actionButtonText}>Mark Completed</Text>
+                      </TouchableOpacity>
+                    )}
+                    {(errand.status === 'completed' || errand.status === 'delivered') && (
+                      <TouchableOpacity
+                        style={[styles.actionButton, styles.invoiceButtonLarge]}
+                        onPress={() => handleGenerateInvoice(errand.id)}
+                        disabled={generatingInvoice === errand.id}
+                      >
+                        <Text style={styles.invoiceButtonIcon}>📄</Text>
+                        <Text style={styles.invoiceButtonText}>
+                          {generatingInvoice === errand.id ? 'Generating...' : 'Generate Invoice'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.viewButton]}
+                      onPress={() => router.push(`/errands/detail/${errand.id}`)}
+                    >
+                      <Text style={styles.actionButtonText}>View Details</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
+          </>
+        )}
+
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      </View>
+
+      <Modal
+        visible={showCreateOrderModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowCreateOrderModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <ScrollView style={styles.modalScrollView} contentContainerStyle={styles.modalScrollContent}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Create Order for Customer</Text>
+              
+              <Text style={styles.modalLabel}>Customer Name *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter customer name..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={customerName}
+                onChangeText={setCustomerName}
+              />
+
+              <Text style={styles.modalLabel}>Customer Phone *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter phone number..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={customerPhone}
+                onChangeText={setCustomerPhone}
+                keyboardType="phone-pad"
+              />
+
+              <Text style={styles.modalLabel}>Delivery Address *</Text>
+              <TextInput
+                style={[styles.modalInput, styles.textArea]}
+                placeholder="Enter delivery address..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={customerAddress}
+                onChangeText={setCustomerAddress}
+                multiline
+                numberOfLines={2}
+              />
+
+              <Text style={styles.modalLabel}>Select Store *</Text>
+              <ScrollView style={styles.pickerContainer}>
+                {stores.length === 0 ? (
+                  <Text style={styles.emptyPickerText}>No stores available</Text>
+                ) : (
+                  stores.map((store) => (
+                    <TouchableOpacity
+                      key={store.id}
+                      style={[
+                        styles.pickerItem,
+                        selectedStore === store.id && styles.pickerItemSelected,
+                      ]}
+                      onPress={() => {
+                        setSelectedStore(store.id);
+                        setSelectedStoreDetails(store);
+                      }}
+                    >
+                      <Text style={[
+                        styles.pickerItemText,
+                        selectedStore === store.id && styles.pickerItemTextSelected,
+                      ]}>
+                        {store.name} - {store.address}
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </ScrollView>
+
+              {selectedStoreDetails && (
+                <View style={styles.storeDetailsCard}>
+                  <Text style={styles.storeDetailsTitle}>📍 Store Details</Text>
+                  <Text style={styles.storeDetailsText}>
+                    <Text style={styles.storeDetailsLabel}>Name: </Text>
+                    {selectedStoreDetails.name}
+                  </Text>
+                  <Text style={styles.storeDetailsText}>
+                    <Text style={styles.storeDetailsLabel}>Address: </Text>
+                    {selectedStoreDetails.address}
+                  </Text>
+                </View>
+              )}
+
+              <Text style={styles.modalLabel}>Order Notes (Optional)</Text>
+              <TextInput
+                style={[styles.modalInput, styles.textArea]}
+                placeholder="Add any special instructions..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={orderNotes}
+                onChangeText={setOrderNotes}
+                multiline
+                numberOfLines={3}
+              />
+
+              <Text style={styles.modalLabel}>Order Price (GYD) *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter total price (e.g., 5000)"
+                placeholderTextColor={theme.colors.textSecondary}
+                value={orderPrice}
+                onChangeText={setOrderPrice}
+                keyboardType="numeric"
+              />
+
+              {orderPrice && !isNaN(parseFloat(orderPrice)) && (
+                <View style={styles.pricingInfo}>
+                  <Text style={styles.pricingInfoText}>
+                    💰 Total: GYD ${parseFloat(orderPrice).toFixed(2)}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonCancel]}
+                  onPress={() => {
+                    setShowCreateOrderModal(false);
+                    setCustomerName('');
+                    setCustomerPhone('');
+                    setCustomerAddress('');
+                    setSelectedStore('');
+                    setOrderNotes('');
+                  }}
+                >
+                  <Text style={styles.modalButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonCreate]}
+                  onPress={handleCreateOrder}
+                  disabled={creatingOrder}
+                >
+                  <Text style={styles.modalButtonText}>
+                    {creatingOrder ? 'Creating...' : 'Create Order'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
         </View>
-      </ScrollView>
+      </Modal>
+
+      <Modal
+        visible={showCreateErrandModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowCreateErrandModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <ScrollView style={styles.modalScrollView} contentContainerStyle={styles.modalScrollContent}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Create Errand for Customer</Text>
+              
+              <Text style={styles.modalLabel}>Customer Name *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter customer name..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={errandCustomerName}
+                onChangeText={setErrandCustomerName}
+              />
+
+              <Text style={styles.modalLabel}>Customer Phone *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter phone number..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={errandCustomerPhone}
+                onChangeText={setErrandCustomerPhone}
+                keyboardType="phone-pad"
+              />
+
+              <Text style={styles.modalLabel}>Customer Address *</Text>
+              <TextInput
+                style={[styles.modalInput, styles.textArea]}
+                placeholder="Enter customer address..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={errandCustomerAddress}
+                onChangeText={setErrandCustomerAddress}
+                multiline
+                numberOfLines={2}
+              />
+
+              <Text style={styles.modalLabel}>Pickup Address *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter pickup address..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={pickupAddress}
+                onChangeText={setPickupAddress}
+              />
+
+              <Text style={styles.modalLabel}>Dropoff Address *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter dropoff address..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={dropoffAddress}
+                onChangeText={setDropoffAddress}
+              />
+
+              <Text style={styles.modalLabel}>Instructions *</Text>
+              <TextInput
+                style={[styles.modalInput, styles.textArea]}
+                placeholder="Provide detailed instructions..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={errandInstructions}
+                onChangeText={setErrandInstructions}
+                multiline
+                numberOfLines={3}
+              />
+
+              <Text style={styles.modalLabel}>Additional Notes (Optional)</Text>
+              <TextInput
+                style={[styles.modalInput, styles.textArea]}
+                placeholder="Any additional notes..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={errandNotes}
+                onChangeText={setErrandNotes}
+                multiline
+                numberOfLines={2}
+              />
+
+              <View style={styles.pricingInfo}>
+                <Text style={styles.pricingInfoText}>💰 Fixed Price: GYD $2000.00</Text>
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonCancel]}
+                  onPress={() => {
+                    setShowCreateErrandModal(false);
+                    setErrandCustomerName('');
+                    setErrandCustomerPhone('');
+                    setErrandCustomerAddress('');
+                    setSelectedCategory('');
+                    setSelectedSubcategory('');
+                    setPickupAddress('');
+                    setDropoffAddress('');
+                    setErrandInstructions('');
+                    setErrandNotes('');
+                  }}
+                >
+                  <Text style={styles.modalButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonCreate]}
+                  onPress={handleCreateErrand}
+                  disabled={creatingErrand}
+                >
+                  <Text style={styles.modalButtonText}>
+                    {creatingErrand ? 'Creating...' : 'Create Errand'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+    ...(isWeb && {
+      flexDirection: 'row',
+      width: '100%',
+    }),
+  },
+  sidebar: {
+    width: 260,
+    backgroundColor: '#1E293B',
+    borderRightWidth: 1,
+    borderRightColor: '#334155',
+    flexDirection: 'column',
+  },
+  sidebarHeader: {
+    padding: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+  },
+  sidebarLogo: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  sidebarTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  sidebarSubtitle: {
+    fontSize: 13,
+    color: '#94A3B8',
+  },
+  sidebarMenu: {
+    flex: 1,
+    paddingVertical: 16,
+  },
+  sidebarMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  sidebarMenuIcon: {
+    fontSize: 20,
+  },
+  sidebarMenuText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#E2E8F0',
+  },
+  sidebarFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#334155',
+  },
+  sidebarUser: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  sidebarUserIcon: {
+    fontSize: 24,
+  },
+  sidebarUserName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  sidebarUserRole: {
+    fontSize: 12,
+    color: '#94A3B8',
+  },
+  sidebarLogout: {
+    backgroundColor: '#334155',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  sidebarLogoutText: {
+    color: '#E2E8F0',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  mainContent: {
+    flex: 1,
+  },
+  mainContentWeb: {
+    backgroundColor: '#F8FAFC',
+  },
+  webHeader: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 24,
+    paddingHorizontal: 32,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  webHeaderTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 4,
+  },
+  webHeaderSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 60,
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: theme.spacing.md,
+    backgroundColor: '#1E88E5',
+  },
+  headerTitle: {
+    fontSize: theme.fontSize.xl,
+    fontWeight: theme.fontWeight.bold,
+    color: '#FFFFFF',
+  },
+  headerSubtitle: {
+    fontSize: theme.fontSize.sm,
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginTop: theme.spacing.xs,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  headerButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: theme.borderRadius.md,
+  },
+  headerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: theme.fontWeight.semibold,
+  },
+  logoutButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.borderRadius.md,
+  },
+  logoutButtonText: {
+    color: '#FFFFFF',
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+  },
+  createSection: {
+    flexDirection: 'row',
+    padding: theme.spacing.md,
+    gap: theme.spacing.md,
+    backgroundColor: isWeb ? '#FFFFFF' : theme.colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: isWeb ? '#E2E8F0' : theme.colors.border,
+    ...(isWeb && {
+      paddingHorizontal: 32,
+      paddingVertical: 20,
+    }),
+  },
+  createButton: {
+    flex: 1,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
+    borderRadius: theme.borderRadius.md,
+    alignItems: 'center',
+    ...theme.shadows.sm,
+  },
+  createOrderButton: {
+    backgroundColor: '#4CAF50',
+  },
+  createErrandButton: {
+    backgroundColor: '#FF9800',
+  },
+  createButtonText: {
+    color: '#FFFFFF',
+    fontSize: theme.fontSize.md,
+    fontWeight: theme.fontWeight.bold,
+  },
+  invoiceSection: {
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  invoiceButton: {
+    backgroundColor: '#9C27B0',
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
+    borderRadius: theme.borderRadius.md,
+    alignItems: 'center',
+    ...theme.shadows.sm,
+  },
+  invoiceButtonText: {
+    color: '#FFFFFF',
+    fontSize: theme.fontSize.md,
+    fontWeight: theme.fontWeight.bold,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    backgroundColor: isWeb ? '#FFFFFF' : theme.colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: isWeb ? '#E2E8F0' : theme.colors.border,
+    ...(isWeb && {
+      paddingHorizontal: 32,
+    }),
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: theme.spacing.md,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: '#1E88E5',
+  },
+  tabText: {
+    fontSize: theme.fontSize.md,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.textSecondary,
+  },
+  tabTextActive: {
+    color: '#1E88E5',
+    fontWeight: theme.fontWeight.bold,
+  },
+  content: {
+    flex: 1,
+    backgroundColor: isWeb ? '#F8FAFC' : theme.colors.background,
+  },
+  contentContainer: {
+    padding: isWeb ? 32 : theme.spacing.md,
+  },
+  filtersContainer: {
+    maxHeight: 60,
+    marginBottom: theme.spacing.md,
+  },
+  filtersContent: {
+    gap: theme.spacing.sm,
+  },
+  filterChip: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  filterChipActive: {
+    backgroundColor: '#1E88E5',
+    borderColor: '#1E88E5',
+  },
+  filterChipText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.text,
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: theme.fontWeight.bold,
+  },
+  card: {
+    backgroundColor: isWeb ? '#FFFFFF' : theme.colors.surface,
+    borderRadius: isWeb ? 12 : theme.borderRadius.lg,
+    padding: isWeb ? 20 : theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    ...theme.shadows.sm,
+    ...(isWeb && {
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
+    }),
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: theme.spacing.md,
+  },
+  cardTitle: {
+    fontSize: theme.fontSize.lg,
+    fontWeight: theme.fontWeight.bold,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.xs,
+  },
+  cardSubtitle: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.textSecondary,
+  },
+  statusBadge: {
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.sm,
+  },
+  statusText: {
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.bold,
+    textTransform: 'uppercase',
+  },
+  cardBody: {
+    marginBottom: theme.spacing.md,
+    gap: theme.spacing.xs,
+  },
+  cardText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.text,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+  },
+  actionButton: {
+    flex: 1,
+    minWidth: 100,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+    alignItems: 'center',
+  },
+  acceptButton: {
+    backgroundColor: '#4CAF50',
+  },
+  rejectButton: {
+    backgroundColor: '#F44336',
+  },
+  completeButton: {
+    backgroundColor: '#1E88E5',
+  },
+  viewButton: {
+    backgroundColor: '#9C27B0',
+  },
+  invoiceButtonLarge: {
+    backgroundColor: '#FF9800',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.sm,
+    paddingVertical: theme.spacing.md,
+    minWidth: '100%',
+    ...theme.shadows.md,
+  },
+  invoiceButtonIcon: {
+    fontSize: 20,
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+  },
+  emptyState: {
+    padding: theme.spacing.xl,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: theme.fontSize.md,
+    color: theme.colors.textSecondary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalScrollView: {
+    flex: 1,
+    width: '100%',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: theme.spacing.lg,
+  },
+  modalContent: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg,
+    width: '100%',
+    maxWidth: 500,
+  },
+  modalTitle: {
+    fontSize: theme.fontSize.xl,
+    fontWeight: theme.fontWeight.bold,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.lg,
+    textAlign: 'center',
+  },
+  modalLabel: {
+    fontSize: theme.fontSize.md,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.sm,
+    marginTop: theme.spacing.md,
+  },
+  pickerContainer: {
+    maxHeight: 180,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: theme.spacing.sm,
+    backgroundColor: theme.colors.background,
+  },
+  pickerItem: {
+    padding: theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  pickerItemSelected: {
+    backgroundColor: '#E3F2FD',
+  },
+  pickerItemText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.text,
+  },
+  pickerItemTextSelected: {
+    color: '#1E88E5',
+    fontWeight: theme.fontWeight.bold,
+  },
+  emptyPickerText: {
+    padding: theme.spacing.md,
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  modalInput: {
+    backgroundColor: theme.colors.background,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    fontSize: theme.fontSize.md,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.md,
+    textAlignVertical: 'top',
+  },
+  textArea: {
+    minHeight: 80,
+  },
+  pricingInfo: {
+    backgroundColor: '#4CAF50' + '20',
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: theme.spacing.md,
+    alignItems: 'center',
+  },
+  pricingInfoText: {
+    fontSize: theme.fontSize.md,
+    fontWeight: theme.fontWeight.bold,
+    color: '#4CAF50',
+  },
+  storeDetailsCard: {
+    backgroundColor: '#E3F2FD',
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: '#1E88E5',
+  },
+  storeDetailsTitle: {
+    fontSize: theme.fontSize.md,
+    fontWeight: theme.fontWeight.bold,
+    color: '#1E88E5',
+    marginBottom: theme.spacing.sm,
+  },
+  storeDetailsText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.xs,
+  },
+  storeDetailsLabel: {
+    fontWeight: theme.fontWeight.bold,
+    color: '#1E88E5',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: theme.spacing.md,
+    marginTop: theme.spacing.lg,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+    alignItems: 'center',
+  },
+  modalButtonCancel: {
+    backgroundColor: theme.colors.textSecondary,
+  },
+  modalButtonCreate: {
+    backgroundColor: '#4CAF50',
+  },
+  modalButtonText: {
+    color: '#FFFFFF',
+    fontSize: theme.fontSize.md,
+    fontWeight: theme.fontWeight.bold,
+  },
+});
+
 
