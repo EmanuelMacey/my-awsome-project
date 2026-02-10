@@ -1,0 +1,19 @@
+
+# EAS Build Ignore
+*.md
+*.log
+.git
+.gitignore
+.eslintrc.js
+.eslintignore
+node_modules
+.expo
+.expo-shared
+android
+ios
+web-build
+dist
+*.tgz
+*.tar.gz
+.DS_Store
+Thumbs.db
